@@ -23,4 +23,7 @@ COLLECTION_NAME = "lyric_vectors"
 SCORE_THRESHOLD = 0.3
 
 # --- 外部API関連 ---
+# Spotify API Credentials
+SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID", "c0146d0eab3742b7bbf89c09c0e5588e")
+SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "58c0b49dafaf4757bc9145c6105afd00")
 # No longer using Musixmatch API KEY

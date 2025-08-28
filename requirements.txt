@@ -55,3 +55,4 @@ numpy
 # その他
 
 requests==2.32.4
+spotipy==2.24.0

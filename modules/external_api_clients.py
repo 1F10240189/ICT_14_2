@@ -1,136 +1,25 @@
 import os
 import requests
-import time
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
 import config
-
-class APIClient:
-    def __init__(self, base_url, api_key_env_var=None, rate_limit_per_second=None):
-        self.base_url = base_url
-        self.api_key = os.getenv(api_key_env_var) if api_key_env_var else None
-        self.rate_limit_per_second = rate_limit_per_second
-        self._last_request_time = 0
-
-    def _make_request(self, endpoint, params=None, headers=None):
-        if self.rate_limit_per_second:
-            time_since_last_request = time.time() - self._last_request_time
-            if time_since_last_request < (1 / self.rate_limit_per_second):
-                time.sleep((1 / self.rate_limit_per_second) - time_since_last_request)
-        
-        url = f"{self.base_url}{endpoint}"
-        all_params = {}
-        if self.api_key:
-            all_params['apikey'] = self.api_key # Musixmatch uses 'apikey'
-        if params:
-            all_params.update(params)
-
-        try:
-            response = requests.get(url, params=all_params, headers=headers)
-            response.raise_for_status()  # Raise an exception for HTTP errors
-            self._last_request_time = time.time()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"API request failed: {e}")
-            return None
-
-class MusicBrainzClient(APIClient):
-    def __init__(self):
-        super().__init__("https://musicbrainz.org/ws/2/", rate_limit_per_second=1) # MusicBrainz has rate limits
-        self.headers = {"User-Agent": "GeminiMusicRecommender/1.0 (your_email@example.com)"} # Required by MusicBrainz
-
-    def search_recording(self, query, limit=10):
-        # Search for recordings (songs)
-        # query can be 'artist:Nirvana AND recording:Smells Like Teen Spirit'
-        # or just 'Smells Like Teen Spirit'
-        params = {
-            "query": query,
-            "fmt": "json",
-            "limit": limit
-        }
-        data = self._make_request("recording/", params=params, headers=self.headers)
-        if data and 'recordings' in data:
-            return data['recordings']
-        return []
-
-    def get_artist_info(self, artist_id):
-        # Get artist details, including URLs
-        params = {"fmt": "json", "inc": "url-rels"}
-        data = self._make_request(f"artist/{artist_id}", params=params, headers=self.headers)
-        if data:
-            return data
-        return None
-
-class AcousticBrainzClient(APIClient):
-    def __init__(self):
-        super().__init__("https://acousticbrainz.org/api/v1/low-level/", rate_limit_per_second=1) # Also has rate limits
-
-    def get_features(self, mbid):
-        # Get low-level acoustic features for a MusicBrainz ID
-        # Example: https://acousticbrainz.org/api/v1/low-level/a0b0c0d0-e0f0-1020-3040-5060708090a0
-        data = self._make_request(mbid)
-        if data:
-            return data
-        return None
-
-class TheAudioDBClient(APIClient):
-    def __init__(self):
-        # TheAudioDB requires an API key, but they have a '1' for testing/public use
-        super().__init__("https://www.theaudiodb.com/api/v1/json/", api_key_env_var="THEAUDIODB_API_KEY")
-        if not self.api_key:
-            print("WARNING: THEAUDIODB_API_KEY not set. Using '2' as default for testing.")
-            self.api_key = "2" # Public API key for testing, changed from '1' to '2'
-
-    def search_track_image(self, artist_name, track_name):
-        # Search for track details which might include album art
-        # This API is more artist/album centric for images, might need to search album by artist
-        # or get album art from track details if available.
-        # Let's try searching for album by artist and then getting album art.
-        params = {"s": artist_name, "t": track_name}
-        data = self._make_request(f"{self.api_key}/searchtrack.php", params=params)
-        if data and 'track' in data and data['track']:
-            # Assuming the first track result is relevant
-            track_info = data['track'][0]
-            return track_info.get('strTrackThumb') or track_info.get('strAlbumThumb')
-        return None
-
-    def search_album_image(self, artist_name, album_name):
-        params = {"s": artist_name, "a": album_name}
-        data = self._make_request(f"{self.api_key}/searchalbum.php", params=params)
-        if data and 'album' in data and data['album']:
-            album_info = data['album'][0]
-            return album_info.get('strAlbumThumb')
-        return None
-
-class iTunesSearchClient(APIClient):
-    def __init__(self):
-        super().__init__("https://itunes.apple.com/search")
-
-    def search_song(self, term, limit=10):
-        # Search for songs on iTunes
-        params = {
-            "term": term,
-            "entity": "song",
-            "limit": limit
-        }
-        data = self._make_request("", params=params) # Endpoint is empty for search
-        if data and 'results' in data:
-            return data['results']
-        return []
-
-    def get_preview_url(self, track_id):
-        # Get preview URL for a specific track ID
-        # This is usually available directly in the search results, but can be fetched if needed.
-        # For simplicity, we'll assume it's in the search results.
-        pass # Not implementing a separate call for this, as it's in search results.
-
-import urllib.parse # Import for URL encoding
+import urllib.parse
 
 class UnifiedMusicService:
     def __init__(self):
-        self.musicbrainz_client = MusicBrainzClient()
-        self.acousticbrainz_client = AcousticBrainzClient()
-        self.theaudiodb_client = TheAudioDBClient()
-        self.itunes_client = iTunesSearchClient()
-        # MusixmatchClient removed
+        # Spotify APIの認証情報
+        client_id = config.SPOTIPY_CLIENT_ID
+        client_secret = config.SPOTIPY_CLIENT_SECRET
+
+        if not client_id or not client_secret:
+            print("エラー: Spotify APIの認証情報が設定されていません。環境変数 SPOTIPY_CLIENT_ID と SPOTIPY_CLIENT_SECRET を設定してください。")
+            # アプリケーションの起動を停止するか、テスト用のダミーデータを使用するなどの対応が必要
+            # 今回はエラーメッセージを出力して続行するが、本番環境では適切なエラーハンドリングが必要
+            self.sp = None
+        else:
+            self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=client_id, client_secret=client_secret))
+        
+        # Lyrics.ovh の利用は継続
 
     def _get_lyrics_from_lyrics_ovh(self, artist: str, title: str) -> str | None:
         """
@@ -153,148 +42,257 @@ class UnifiedMusicService:
             return None
 
     def search_track_by_name(self, query, limit=5):
-        results = []
-        # 1. Search MusicBrainz for recordings
-        mb_recordings = self.musicbrainz_client.search_recording(query, limit=limit)
+        if not self.sp:
+            return []
+        try:
+            results = self.sp.search(q=query, type='track', limit=limit)
+            tracks = []
+            for item in results['tracks']['items']:
+                track_id = item['id']
+                track_name = item['name']
+                artist_name = item['artists'][0]['name'] if item['artists'] else 'Unknown Artist'
+                album_art = item['album']['images'][0]['url'] if item['album']['images'] else None
+                preview_url = item['preview_url']
+                
+                tracks.append({
+                    "id": track_id,
+                    "name": track_name,
+                    "artist": artist_name,
+                    "album_art": album_art,
+                    "preview_url": preview_url
+                })
+            return tracks
+        except Exception as e:
+            print(f"Spotify search_track_by_name failed: {e}")
+            return []
 
-        for recording in mb_recordings:
-            track_name = recording.get('title')
-            artist_name = recording.get('artist-credit')[0].get('name') if recording.get('artist-credit') else 'Unknown Artist'
-            mb_recording_id = recording.get('id')
-            
-            album_art = None
-            # Try to get album art from TheAudioDB
-            if recording.get('releases'):
-                album_name = recording['releases'][0].get('title')
-                album_art = self.theaudiodb_client.search_album_image(artist_name, album_name)
-            
-            # Fallback to iTunes for album art if not found via TheAudioDB
-            if not album_art:
-                itunes_results = self.itunes_client.search_song(f"{track_name} {artist_name}", limit=1)
-                if itunes_results:
-                    album_art = itunes_results[0].get('artworkUrl100') # 100x100 artwork
+    def get_track_info(self, track_id):
+        if not self.sp:
+            return {}
+        try:
+            track = self.sp.track(track_id)
+            artist_name = track['artists'][0]['name'] if track['artists'] else 'Unknown Artist'
+            lyrics = self._get_lyrics_from_lyrics_ovh(artist_name, track['name'])
 
-            results.append({
-                "id": mb_recording_id,
-                "name": track_name,
+            return {
+                "id": track['id'],
+                "name": track['name'],
                 "artist": artist_name,
-                "album_art": album_art
-            })
-        return results
+                "album_art_url": track['album']['images'][0]['url'] if track['album']['images'] else None,
+                "preview_url": track['preview_url'],
+                "lyrics": lyrics,
+                "duration_ms": track['duration_ms'],
+                "popularity": track['popularity']
+            }
+        except Exception as e:
+            print(f"Spotify get_track_info failed: {e}")
+            return {}
 
-    def get_track_info(self, mb_recording_id=None, track_name=None, artist_name=None, album_art_url=None):
-        track_info = {
-            "mb_recording_id": mb_recording_id,
-            "track_name": track_name,
-            "artist_name": artist_name,
-            "lyrics": None,
-            "audio_features": {},
-            "preview_url": None,
-            "artist_official_url": None, # Renamed from artist_homepage
-            "album_art_url": album_art_url # Added album_art_url
-        }
+    def get_artist_info(self, artist_id):
+        if not self.sp:
+            return {}
+        try:
+            artist = self.sp.artist(artist_id)
+            return {
+                "id": artist['id'],
+                "name": artist['name'],
+                "genres": artist['genres'],
+                "followers": artist['followers']['total'],
+                "images": artist['images']
+            }
+        except Exception as e:
+            print(f"Spotify get_artist_info failed: {e}")
+            return {}
 
-        # Get AcousticBrainz features
-        if mb_recording_id:
-            audio_features = self.acousticbrainz_client.get_features(mb_recording_id)
-            if audio_features:
-                track_info["audio_features"] = audio_features.get('lowlevel', {}) # Or other relevant sections
+    def get_related_artists(self, artist_id):
+        if not self.sp:
+            return []
+        try:
+            results = self.sp.artist_related_artists(artist_id)
+            related_artists = []
+            for artist in results['artists']:
+                related_artists.append({
+                    "id": artist['id'],
+                    "name": artist['name'],
+                    "genres": artist['genres'],
+                    "images": artist['images']
+                })
+            return related_artists
+        except Exception as e:
+            print(f"Spotify get_related_artists failed: {e}")
+            return []
 
-        # Get lyrics from Lyrics.ovh
-        if track_name and artist_name:
-            lyrics = self._get_lyrics_from_lyrics_ovh(artist_name, track_name)
-            if lyrics:
-                track_info["lyrics"] = lyrics
+    def get_recommendations(self, seed_tracks=None, seed_artists=None, seed_genres=None, limit=5):
+        if not self.sp:
+            return []
+        try:
+            results = self.sp.recommendations(
+                seed_tracks=seed_tracks,
+                seed_artists=seed_artists,
+                seed_genres=seed_genres,
+                limit=limit
+            )
+            recommended_tracks = []
+            for track in results['tracks']:
+                recommended_tracks.append({
+                    "id": track['id'],
+                    "name": track['name'],
+                    "artist": track['artists'][0]['name'] if track['artists'] else 'Unknown Artist',
+                    "album_art": track['album']['images'][0]['url'] if track['album']['images'] else None,
+                    "preview_url": track['preview_url']
+                })
+            return recommended_tracks
+        except Exception as e:
+            print(f"Spotify get_recommendations failed: {e}")
+            return []
 
-        # Get preview URL from iTunes
-        if track_name and artist_name:
-            itunes_results = self.itunes_client.search_song(f"{track_name} {artist_name}", limit=1)
-            if itunes_results:
-                track_info["preview_url"] = itunes_results[0].get('previewUrl')
-                # If album_art_url was not provided, try to get it from iTunes search results
-                if not track_info["album_art_url"]:
-                    track_info["album_art_url"] = itunes_results[0].get('artworkUrl100')
+    def get_audio_features(self, track_ids):
+        if not self.sp:
+            return []
+        try:
+            features = self.sp.audio_features(track_ids)
+            return features
+        except Exception as e:
+            print(f"Spotify get_audio_features failed: {e}")
+            return []
 
-        # Get artist homepage from MusicBrainz
-        if mb_recording_id: # Need to get artist ID from recording first
-            mb_recordings = self.musicbrainz_client.search_recording(f"rid:{mb_recording_id}", limit=1)
-            if mb_recordings:
-                artist_id = mb_recordings[0].get('artist-credit')[0].get('artist', {}).get('id')
-                if artist_id:
-                    artist_info = self.musicbrainz_client.get_artist_info(artist_id)
-                    if artist_info and 'url-rels' in artist_info:
-                        official_url = next((rel['target'] for rel in artist_info['url'] if rel['type'] == 'official homepage'), None) # Changed from url-rels to url
-                        track_info["artist_official_url"] = official_url
-        
-        return track_info
+    def get_audio_analysis(self, track_id):
+        if not self.sp:
+            return {}
+        try:
+            analysis = self.sp.audio_analysis(track_id)
+            return analysis
+        except Exception as e:
+            print(f"Spotify get_audio_analysis failed: {e}")
+            return {}
+
+    def get_featured_playlists(self, limit=5):
+        if not self.sp:
+            return []
+        try:
+            playlists = self.sp.featured_playlists(limit=limit)
+            featured_list = []
+            for item in playlists['playlists']['items']:
+                featured_list.append({
+                    "id": item['id'],
+                    "name": item['name'],
+                    "description": item['description'],
+                    "images": item['images'],
+                    "external_urls": item['external_urls']['spotify']
+                })
+            return featured_list
+        except Exception as e:
+            print(f"Spotify get_featured_playlists failed: {e}")
+            return []
+
+    def get_category_playlists(self, category_id, limit=5):
+        if not self.sp:
+            return []
+        try:
+            playlists = self.sp.category_playlists(category_id, limit=limit)
+            category_list = []
+            for item in playlists['playlists']['items']:
+                category_list.append({
+                    "id": item['id'],
+                    "name": item['name'],
+                    "description": item['description'],
+                    "images": item['images'],
+                    "external_urls": item['external_urls']['spotify']
+                })
+            return category_list
+        except Exception as e:
+            print(f"Spotify get_category_playlists failed: {e}")
+            return []
 
 # Example Usage (for testing purposes, not part of the main flow)
 if __name__ == "__main__":
-    # Ensure API keys are set in your environment variables for TheAudioDB
-    # export THEAUDIODB_API_KEY='YOUR_API_KEY' (or use '2' for testing)
+    # 環境変数に SPOTIPY_CLIENT_ID と SPOTIPY_CLIENT_SECRET を設定してください
+    # export SPOTIPY_CLIENT_ID='YOUR_CLIENT_ID'
+    # export SPOTIPY_CLIENT_SECRET='YOUR_CLIENT_SECRET'
 
-    print("--- Testing MusicBrainzClient ---")
-    mb_client = MusicBrainzClient()
-    recordings = mb_client.search_recording("artist:Nirvana AND recording:Smells Like Teen Spirit")
-    if recordings:
-        print(f"Found {len(recordings)} recordings for 'Smells Like Teen Spirit' by Nirvana.")
-        first_recording = recordings[0]
-        print(f"First recording: {first_recording.get('title')} by {first_recording.get('artist-credit')[0].get('name')}")
-        
-        artist_id = first_recording.get('artist-credit')[0].get('artist', {}).get('id')
-        if artist_id:
-            artist_info = mb_client.get_artist_info(artist_id)
-            if artist_info and 'url-rels' in artist_info:
-                official_url = next((rel['target'] for rel in artist_info['url-rels'] if rel['type'] == 'official homepage'), None)
-                print(f"Nirvana Official Homepage: {official_url}")
-
-    print("\n--- Testing AcousticBrainzClient ---")
-    # You need a valid MusicBrainz ID for this. Let's use a known one for testing.
-    # Example MBID for 'Smells Like Teen Spirit' recording: 2b070900-2203-4120-927f-122220000000
-    # (This is a placeholder, you'd get it from MusicBrainz search)
-    test_mbid = "2b070900-2203-4120-927f-122220000000" # Replace with a real MBID if testing
-    acoustic_features = AcousticBrainzClient().get_features(test_mbid)
-    if acoustic_features:
-        print(f"Acoustic features for {test_mbid}: {acoustic_features.get('metadata', {}).get('tags', {}).get('genre', 'N/A')}")
-    else:
-        print(f"Could not retrieve AcousticBrainz features for {test_mbid}. (Might be a placeholder MBID or no data)")
-
-    print("\n--- Testing TheAudioDBClient ---")
-    audio_db_client = TheAudioDBClient()
-    album_thumb = audio_db_client.search_album_image("Nirvana", "Nevermind")
-    if album_thumb:
-        print(f"Nevermind Album Thumb: {album_thumb}")
-    else:
-        print("Could not find album thumb for Nevermind.")
-
-    print("\n--- Testing iTunesSearchClient ---")
-    itunes_client = iTunesSearchClient()
-    itunes_results = itunes_client.search_song("Smells Like Teen Spirit Nirvana", limit=1)
-    if itunes_results:
-        first_result = itunes_results[0]
-        print(f"iTunes Result: {first_result.get('trackName')} by {first_result.get('artistName')}")
-        print(f"Preview URL: {first_result.get('previewUrl')}")
-    else:
-        print("No iTunes results found.")
-
-    print("\n--- Testing UnifiedMusicService ---")
+    print("--- Testing UnifiedMusicService with Spotify API ---")
     unified_service = UnifiedMusicService()
-    search_results = unified_service.search_track_by_name("Smells Like Teen Spirit Nirvana", limit=1)
-    if search_results:
-        print(f"Unified Search Result: {search_results[0].get('name')} by {search_results[0].get('artist')}")
-        print(f"Album Art: {search_results[0].get('album_art')}")
-        
-        track_details = unified_service.get_track_info(
-            mb_recording_id=search_results[0]['id'],
-            track_name=search_results[0]['name'],
-            artist_name=search_results[0]['artist'],
-            album_art_url=search_results[0].get('album_art') # Pass album_art_url from search results
-        )
-        print(f"Track Details: {track_details.get('track_name')}")
-        print(f"Preview URL: {track_details.get('preview_url')}")
-        print(f"Artist Official URL: {track_details.get('artist_official_url')}") # Renamed
-        print(f"Album Art URL: {track_details.get('album_art_url')}") # Added
-        print(f"Lyrics (first 100 chars): {track_details.get('lyrics', '')[:100]}...")
-        print(f"Audio Features keys: {track_details.get('audio_features', {}).keys()}")
+
+    if unified_service.sp:
+        # Search Track
+        print("\n--- Searching for 'Smells Like Teen Spirit' ---")
+        search_results = unified_service.search_track_by_name("Smells Like Teen Spirit Nirvana", limit=1)
+        if search_results:
+            track = search_results[0]
+            print(f"Found Track: {track['name']} by {track['artist']}")
+            print(f"Album Art: {track['album_art']}")
+            print(f"Preview URL: {track['preview_url']}")
+
+            # Get Track Info
+            print("\n--- Getting Track Info ---")
+            track_info = unified_service.get_track_info(track['id'])
+            if track_info:
+                print(f"Track Name: {track_info['name']}")
+                print(f"Lyrics (first 100 chars): {track_info['lyrics'][:100]}...")
+                print(f"Duration (ms): {track_info['duration_ms']}")
+                print(f"Popularity: {track_info['popularity']}")
+
+            # Get Artist Info
+            print("\n--- Getting Artist Info (Nirvana) ---")
+            # First, find Nirvana's artist ID from the track
+            artist_id = unified_service.sp.track(track['id'])['artists'][0]['id']
+            artist_info = unified_service.get_artist_info(artist_id)
+            if artist_info:
+                print(f"Artist Name: {artist_info['name']}")
+                print(f"Genres: {artist_info['genres']}")
+                print(f"Followers: {artist_info['followers']}")
+
+            # Get Related Artists
+            print("\n--- Getting Related Artists for Nirvana ---")
+            related_artists = unified_service.get_related_artists(artist_id)
+            if related_artists:
+                for i, artist in enumerate(related_artists[:3]):
+                    print(f"  {i+1}. {artist['name']}")
+
+            # Get Recommendations (using the found track as a seed)
+            print("\n--- Getting Recommendations ---")
+            recommendations = unified_service.get_recommendations(seed_tracks=[track['id']], limit=3)
+            if recommendations:
+                for i, rec_track in enumerate(recommendations):
+                    print(f"  {i+1}. {rec_track['name']} by {rec_track['artist']}")
+
+            # Get Audio Features
+            print("\n--- Getting Audio Features ---")
+            audio_features = unified_service.get_audio_features([track['id']])
+            if audio_features:
+                print(f"  Danceability: {audio_features[0]['danceability']}")
+                print(f"  Energy: {audio_features[0]['energy']}")
+
+            # Get Audio Analysis
+            print("\n--- Getting Audio Analysis ---")
+            audio_analysis = unified_service.get_audio_analysis(track['id'])
+            if audio_analysis:
+                print(f"  Tempo: {audio_analysis['track']['tempo']}")
+                print(f"  Key: {audio_analysis['track']['key']}")
+
+            # Get Featured Playlists
+            print("\n--- Getting Featured Playlists ---")
+            featured_playlists = unified_service.get_featured_playlists(limit=2)
+            if featured_playlists:
+                for i, playlist in enumerate(featured_playlists):
+                    print(f"  {i+1}. {playlist['name']} - {playlist['description'][:50]}...")
+
+            # Get Category Playlists (e.g., 'rock')
+            print("\n--- Getting 'Rock' Category Playlists ---")
+            # You might need to get category IDs first using sp.categories()
+            # For now, let's assume 'rock' category ID is known or find one dynamically
+            # Example: sp.categories() to get available categories and their IDs
+            try:
+                categories = unified_service.sp.categories(limit=1) # Just to get one category ID for testing
+                if categories and categories['categories']['items']:
+                    test_category_id = categories['categories']['items'][0]['id']
+                    print(f"Using test category ID: {test_category_id}")
+                    category_playlists = unified_service.get_category_playlists(test_category_id, limit=2)
+                    if category_playlists:
+                        for i, playlist in enumerate(category_playlists):
+                            print(f"  {i+1}. {playlist['name']} - {playlist['description'][:50]}...")
+            except Exception as e:
+                print(f"Could not get category playlists for testing: {e}")
+
     else:
-        print("No unified search results found.")
+        print("Spotify APIクライアントが初期化されませんでした。テストをスキップします。")
