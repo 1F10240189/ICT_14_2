@@ -1,1 +1,28 @@
 # 必要なライブラリリスト
+# requirements.txt
+
+# LangChain関連: RAGのフレームワーク
+langchain==0.3.27
+langchain-openai==0.3.31
+langchain-community==0.3.27
+langchain-chroma==0.2.5
+
+# ベクトルデータベース
+chromadb==1.0.20
+
+# OpenAI API関連
+openai
+tiktoken==0.11.0
+
+# Web UI
+gradio==5.42.0
+
+# 設定ファイル(.env)の読み込み
+python-dotenv==1.1.1
+
+# データハンドリング
+pandas
+numpy
+
+# その他
+requests==2.32.4
