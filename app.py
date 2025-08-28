@@ -4,6 +4,7 @@ load_dotenv()
 import gradio as gr
 import json
 from modules.recommender import LyricRecommender
+from modules.external_api_clients import UnifiedMusicService
 
 # --- データの読み込み ---
 # アプリケーション起動時に一度だけsongs.jsonを読み込みます。
@@ -31,51 +32,177 @@ def load_song_data(path="data/songs.json"):
 # JSONから楽曲データを読み込む
 songs_db, song_titles_for_examples = load_song_data()
 
-# 他の人が作成する推薦エンジン。準備ができたら下のコメントアウトを外す
+# 推薦エンジンと外部音楽サービスを初期化
 recommender = LyricRecommender()
-print("✅ Recommender engine loaded.")
-
+music_service = UnifiedMusicService()
+print("✅ Recommender engine and Music Service loaded.")
 
 # --- Gradioの応答関数 ---
-def respond(message, history):
+def recommend_song(selected_track_id, selected_track_name, selected_artist_name, selected_album_art_url):
     """
-    ユーザーからのメッセージ(曲名)を受け取り、推薦結果を返す関数
+    ユーザーが選択した曲のIDを受け取り、推薦結果を返す関数
     """
-    selected_title = (message or "").strip()
-    if not selected_title:
-        return "曲名を入力してください。"
+    if not selected_track_id:
+        return "曲が選択されていません。検索して選択してください。"
 
-    # --- UIテスト用のデータ検索 (読み込んだデータから) ---
-    selected_song = songs_db.get(selected_title)
-    if not selected_song:
-        return f"申し訳ありません。「{selected_title}」という曲はデータベースにありません。"
+    # 選択された曲の詳細情報を外部APIから取得
+    # ここでは、ローカルDBの歌詞を優先しつつ、外部APIから音響特徴量などを取得する
+    selected_song_lyrics = ""
+    local_song_info = songs_db.get(selected_track_name) # ローカルDBから歌詞を取得
+    if local_song_info:
+        selected_song_lyrics = local_song_info["lyrics"]
+
+    # 外部APIから詳細情報を取得 (MusicBrainz ID, 歌詞、音響特徴量など)
+    # get_track_infoはMusicBrainz IDを期待する
+    selected_song_details = music_service.get_track_info(
+        mb_recording_id=selected_track_id,
+        track_name=selected_track_name,
+        artist_name=selected_artist_name,
+        album_art_url=selected_album_art_url # Pass album_art_url
+    )
     
-    print(f"ユーザーが選択した曲: {selected_title}")
+    # 外部APIから歌詞が取得できた場合はそちらを優先
+    if selected_song_details.get("lyrics"): 
+        selected_song_lyrics = selected_song_details["lyrics"]
 
-    # --- (仮の)推薦処理 ---
-    # バックエンド担当者のrecommender.pyが完成したら、下のコメントアウトを外して差し替えます。
+    if not selected_song_lyrics:
+        return f"申し訳ありません。「{selected_track_name}」の歌詞が見つかりませんでした。"
+
+    print(f"ユーザーが選択した曲: {selected_track_name} (ID: {selected_track_id})")
+
+    # --- 推薦処理 ---
     recommendation_text = recommender.recommend(
-        selected_song_title=selected_title,
-        selected_song_lyrics=selected_song["lyrics"]
+        selected_mb_recording_id=selected_track_id,
+        selected_song_title=selected_track_name,
+        selected_artist_name=selected_artist_name,
+        selected_song_lyrics=selected_song_lyrics,
+        selected_album_art_url=selected_album_art_url # Pass album_art_url
     )
     
     return recommendation_text
 
 
+def search_tracks(query):
+    """
+    検索クエリに基づいて楽曲を検索し、結果をHTML形式で返す関数
+    """
+    if not query or len(query) < 2:
+        return ""
+
+    results = music_service.search_track_by_name(query, limit=5)
+    
+    if not results:
+        return "<div class='no-results'>曲が見つかりませんでした。</div>"
+
+    html_output = ""
+    for track in results:
+        # MusicBrainz IDをdata属性として埋め込む
+        html_output += f"""
+        <div class='search-result-item' 
+             data-track-id='{track.get('id')}' 
+             data-track-name='{track.get('name')}' 
+             data-artist-name='{track.get('artist')}' 
+             data-album-art='{track.get('album_art') or ''}'>
+            <img src="{track.get('album_art') or 'https://via.placeholder.com/64'}" alt="{track.get('name')}" class="album-art">
+            <div class="track-info">
+                <span class="track-name">{track.get('name')}</span>
+                <span class="artist-name">{track.get('artist')}</span>
+            </div>
+        </div>
+        """
+    
+    # Embed JavaScript directly into the HTML output
+    html_output += """
+    <script>
+        alert("Script is running!"); // Added for debugging
+        // This script will execute when the HTML is rendered.
+        // It attaches click listeners to the search result items.
+        const items = document.querySelectorAll('.search-result-item');
+        items.forEach(item => {
+            item.onclick = () => {
+                const trackId = item.dataset.trackId;
+                const trackName = item.dataset.trackName;
+                const artistName = item.dataset.artistName;
+                const albumArt = item.dataset.albumArt;
+                
+                // 隠しコンポーネントの値を更新
+                const selectedTrackIdComp = document.querySelector('#selected_track_id_comp');
+                const selectedTrackNameComp = document.querySelector('#selected_track_name_comp');
+                const selectedArtistNameComp = document.querySelector('#selected_artist_name_comp');
+                const selectedAlbumArtUrlComp = document.querySelector('#selected_album_art_url_comp');
+                const selectedTrackDisplayOutputComp = document.querySelector('#selected_track_display_output_comp');
+
+                if (selectedTrackIdComp) selectedTrackIdComp.value = trackId;
+                if (selectedTrackNameComp) selectedTrackNameComp.value = trackName;
+                if (selectedArtistNameComp) selectedArtistNameComp.value = artistName;
+                if (selectedAlbumArtUrlComp) selectedAlbumArtUrlComp.value = albumArt;
+                if (selectedTrackDisplayOutputComp) selectedTrackDisplayOutputComp.value = `${trackName} - ${artistName}`;
+
+                // 検索結果をクリア
+                const searchResultsHtml = document.querySelector('div[data-testid="html"]');
+                if (searchResultsHtml) searchResultsHtml.innerHTML = '';
+
+                // 推薦ボタンを有効化 (必要であれば)
+                // const submitButton = document.querySelector('button[data-testid="submit-button"]');
+                // if (submitButton) submitButton.disabled = false;
+            };
+        });
+    </script>
+    """
+
+    return html_output
+
 # --- Gradio UIの構築 ---
 def create_ui():
-    """GradioのChatInterfaceを作成して返す"""
-    return gr.ChatInterface(
-        fn=respond,
-        title="AI Lyric Recommender 🎵",
-        description="好きな曲を選ぶと、歌詞の雰囲気が似ている曲をAIが推薦します。",
-        examples=song_titles_for_examples, # 起動時に読み込んだ曲名リストを使用
-        submit_btn="この曲で推薦してもらう",
-        stop_btn="停止"
-    )
+    with gr.Blocks(title="AI Lyric Recommender 🎵") as demo:
+        gr.Markdown("# AI Lyric Recommender 🎵")
+        gr.Markdown("好きな曲を検索して選択すると、歌詞や雰囲気、音響的特徴が似ている曲をAIが推薦します。")
+
+        with gr.Row():
+            with gr.Column(scale=2):
+                track_search_input = gr.Textbox(
+                    label="曲名またはアーティスト名で検索",
+                    placeholder="例: Smells Like Teen Spirit Nirvana",
+                    interactive=True
+                )
+                search_results_html = gr.HTML(label="検索結果")
+                
+                # 選択された曲の情報を保持する隠しコンポーネント
+                selected_track_id = gr.Textbox(visible=False, elem_id="selected_track_id_comp")
+                selected_track_name = gr.Textbox(visible=False, elem_id="selected_track_name_comp")
+                selected_artist_name = gr.Textbox(visible=False, elem_id="selected_artist_name_comp")
+                selected_album_art_url = gr.Textbox(visible=False, elem_id="selected_album_art_url_comp") # New hidden component
+
+                # 新しい表示用コンポーネント
+                selected_track_display_output = gr.Textbox(
+                    label="選択中の曲",
+                    interactive=False,
+                    elem_id="selected_track_display_output_comp"
+                )
+
+                submit_button = gr.Button("この曲で推薦してもらう")
+
+            with gr.Column(scale=3):
+                recommendation_output = gr.Markdown(label="推薦結果")
+
+        # 検索入力の変更時に検索を実行
+        track_search_input.change(
+            fn=search_tracks,
+            inputs=track_search_input,
+            outputs=search_results_html,
+            queue=False
+        )
+
+        # 推薦ボタンのクリック時に推薦を実行
+        submit_button.click(
+            fn=recommend_song,
+            inputs=[selected_track_id, selected_track_name, selected_artist_name, selected_album_art_url],
+            outputs=recommendation_output
+        )
+
+    return demo
 
 # --- アプリケーションの起動 ---
 if __name__ == "__main__":
     demo = create_ui()
-    # share=Trueにすると、外部からアクセスできるURLが生成されます
     demo.launch(share=True)

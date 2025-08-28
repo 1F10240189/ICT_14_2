@@ -3,7 +3,7 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_chroma import Chroma
 from langchain.docstore.document import Document # Documentクラスをインポート
 import config
-from modules.external_api_clients import MusicBrainzClient, AcousticBrainzClient, TheAudioDBClient, iTunesSearchClient
+from modules.external_api_clients import UnifiedMusicService
 
 class LyricRecommender:
     def __init__(self):
@@ -46,76 +46,48 @@ class LyricRecommender:
 """
 
         # 新しいAPIクライアントの初期化
-        self.mb_client = MusicBrainzClient()
-        self.ab_client = AcousticBrainzClient()
-        self.audiodb_client = TheAudioDBClient()
-        self.itunes_client = iTunesSearchClient()
+        self.unified_music_service = UnifiedMusicService()
 
-    def _get_song_details_from_external_apis(self, title, artist):
-        details = {
-            "title": title,
-            "artist": artist,
-            "lyrics": "", # 外部APIから歌詞を取得するのは難しい場合が多い
-            "acoustic_features": {},
-            "album_art_url": "",
-            "preview_url": "",
-            "artist_official_url": ""
-        }
+    def _get_acoustic_feature(self, details, path, default="不明"):
+        """Safely extracts a nested acoustic feature from the details dictionary."""
+        keys = path.split(".")
+        value = details.get("audio_features", {})
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                return default # Path not found
+            if value is None:
+                return default
+        return value
 
-        # MusicBrainzから詳細情報を取得
-        mb_recordings = self.mb_client.search_recording(f"artist:{artist} AND recording:{title}", limit=1)
-        if mb_recordings:
-            mb_recording = mb_recordings[0]
-            details["mbid"] = mb_recording.get('id')
-            
-            # アーティスト公式サイトリンク
-            artist_id = mb_recording.get('artist-credit')[0].get('artist', {}).get('id')
-            if artist_id:
-                artist_info = self.mb_client.get_artist_info(artist_id)
-                if artist_info and 'url-rels' in artist_info:
-                    official_url = next((rel['target'] for rel in artist_info['url-rels'] if rel['type'] == 'official homepage'), None)
-                    details["artist_official_url"] = official_url
+    def recommend(self, selected_mb_recording_id, selected_song_title, selected_artist_name, selected_song_lyrics, selected_album_art_url=None):
+        # 1. 選択された曲の詳細情報をUnifiedMusicServiceから取得
+        # これには歌詞、音響特徴量、プレビューURLなどが含まれる
+        selected_song_details = self.unified_music_service.get_track_info(
+            mb_recording_id=selected_mb_recording_id,
+            track_name=selected_song_title,
+            artist_name=selected_artist_name,
+            album_art_url=selected_album_art_url # Pass album_art_url
+        )
+        
+        # 歌詞が取得できなかった場合は、app.pyから渡された歌詞を使用
+        if not selected_song_details.get("lyrics"):
+            selected_song_details["lyrics"] = selected_song_lyrics
 
-        # AcousticBrainzから音響的特徴を取得 (MusicBrainz IDが必要)
-        if details.get("mbid"):
-            acoustic_data = self.ab_client.get_features(details["mbid"])
-            if acoustic_data and 'lowlevel' in acoustic_data:
-                # テンポ、ジャンル、楽器構成などを抽出
-                details["acoustic_features"] = {
-                    "bpm": acoustic_data['lowlevel'].get('bpm'),
-                    "genre": acoustic_data.get('metadata', {}).get('tags', {}).get('genre'),
-                    "instrumentation": acoustic_data.get('metadata', {}).get('tags', {}).get('instrumentation')
-                }
+        # 2. 選択された曲の歌詞を元に、ローカルDBから類似度スコア付きでドキュメントをベクトル検索
+        docs_scores = self.vectorstore.similarity_search_with_relevance_scores(selected_song_details["lyrics"], k=10) 
 
-        # TheAudioDBからジャケット写真を取得
-        album_art = self.audiodb_client.search_album_image(artist, title) # Try album image first
-        if not album_art:
-            album_art = self.audiodb_client.search_track_image(artist, title) # Fallback to track image
-        details["album_art_url"] = album_art
-
-        # iTunes Search APIから試聴リンクを取得
-        itunes_results = self.itunes_client.search_song(f"{title} {artist}", limit=1)
-        if itunes_results:
-            details["preview_url"] = itunes_results[0].get('previewUrl')
-
-        return details
-
-    def recommend(self, selected_song_title, selected_song_lyrics):
-        # 1. 類似度スコア付きでドキュメントをベクトル検索 (ローカルDBから)
-        # kは多めに取得し、後でスコアでフィルタリング
-        docs_scores = self.vectorstore.similarity_search_with_relevance_scores(selected_song_lyrics, k=10) 
-
-        # 2. 検索結果から自分自身を除外し、スコアでフィルタリング
-        # config.SCORE_THRESHOLD を使用
+        # 3. 検索結果から自分自身を除外し、スコアでフィルタリング
         filtered_local_docs = []
         for d, s in docs_scores:
             if d.metadata.get("title") != selected_song_title and s >= config.SCORE_THRESHOLD:
                 filtered_local_docs.append((d, s))
         
-        # 3. 外部APIから関連性の高い楽曲を検索・取得
-        # ユーザーが選択した曲のタイトルと歌詞を元に、MusicBrainzで広範な検索を行う
-        # ここでは、選択された曲のタイトルをクエリとしてMusicBrainzを検索
-        mb_search_results = self.mb_client.search_recording(selected_song_title, limit=20) # 20件程度取得
+        # 4. 外部APIから関連性の高い楽曲を検索・取得
+        # 選択された曲のタイトルとアーティストを元に、MusicBrainzで広範な検索を行う
+        # Note: mb_client is not directly exposed by UnifiedMusicService, need to access it
+        mb_search_results = self.unified_music_service.musicbrainz_client.search_recording(f"{selected_song_title} {selected_artist_name}", limit=20) 
         
         external_candidate_songs = []
         for rec in mb_search_results:
@@ -123,9 +95,9 @@ class LyricRecommender:
             artist_credit = rec.get('artist-credit')
             artist = artist_credit[0].get('name') if artist_credit else "Unknown Artist"
             if title != selected_song_title: # 選択された曲自身は除外
-                external_candidate_songs.append({"title": title, "artist": artist})
+                external_candidate_songs.append({"title": title, "artist": artist, "mbid": rec.get('id')})
 
-        # 4. ローカルと外部の候補を統合し、詳細情報を取得
+        # 5. ローカルと外部の候補を統合し、詳細情報を取得
         all_candidate_docs = []
         source_titles = set() # 参照元となる曲名を保持するためのセット
 
@@ -136,14 +108,24 @@ class LyricRecommender:
             lyrics = d.page_content
             
             # 外部APIから詳細情報を取得
-            details = self._get_song_details_from_external_apis(title, artist)
+            # ここではMusicBrainz IDが不明なため、タイトルとアーティストで検索
+            details = self.unified_music_service.get_track_info(
+                mb_recording_id=None, # MBIDは不明
+                track_name=title,
+                artist_name=artist
+            )
             details["lyrics"] = lyrics # ローカルの歌詞を優先
 
+            # Extract acoustic features using the helper
+            tempo = self._get_acoustic_feature(details, "rhythm.bpm")
+            genre = self._get_acoustic_feature(details, "tonal.key_strength") # Placeholder, actual genre might be elsewhere
+            instrumentation = self._get_acoustic_feature(details, "sfx.instrumentation") # Placeholder
+
             all_candidate_docs.append(Document(
-                page_content=f"曲名: {details["title"]}\nアーティスト: {details["artist"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {details["acoustic_features"].get("bpm", "不明")}\nジャンル: {details["acoustic_features"].get("genre", "不明")}\n楽器構成: {details["acoustic_features"].get("instrumentation", "不明")}",
+                page_content=f"曲名: {details["track_name"]}\nアーティスト: {details["artist_name"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {tempo}\nジャンル: {genre}\n楽器構成: {instrumentation}",
                 metadata={
-                    "title": details["title"],
-                    "artist": details["artist"],
+                    "title": details["track_name"],
+                    "artist": details["artist_name"],
                     "album_art_url": details["album_art_url"],
                     "preview_url": details["preview_url"],
                     "artist_official_url": details["artist_official_url"],
@@ -156,16 +138,24 @@ class LyricRecommender:
         for song_info in external_candidate_songs:
             title = song_info["title"]
             artist = song_info["artist"]
+            mbid = song_info["mbid"]
             if title not in source_titles: # 重複を避ける
-                details = self._get_song_details_from_external_apis(title, artist)
+                details = self.unified_music_service.get_track_info(
+                    mb_recording_id=mbid,
+                    track_name=title,
+                    artist_name=artist
+                )
                 
-                # 歌詞がない場合は、LLMに渡すコンテキストとして不十分な場合があるため、
-                # ここでは歌詞がなくても追加するが、実際のRAGでは考慮が必要
+                # Extract acoustic features using the helper
+                tempo = self._get_acoustic_feature(details, "rhythm.bpm")
+                genre = self._get_acoustic_feature(details, "tonal.key_strength") # Placeholder
+                instrumentation = self._get_acoustic_feature(details, "sfx.instrumentation") # Placeholder
+
                 all_candidate_docs.append(Document(
-                    page_content=f"曲名: {details["title"]}\nアーティスト: {details["artist"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {details["acoustic_features"].get("bpm", "不明")}\nジャンル: {details["acoustic_features"].get("genre", "不明")}\n楽器構成: {details["acoustic_features"].get("instrumentation", "不明")}",
+                    page_content=f"曲名: {details["track_name"]}\nアーティスト: {details["artist_name"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {tempo}\nジャンル: {genre}\n楽器構成: {instrumentation}",
                     metadata={
-                        "title": details["title"],
-                        "artist": details["artist"],
+                        "title": details["track_name"],
+                        "artist": details["artist_name"],
                         "album_art_url": details["album_art_url"],
                         "preview_url": details["preview_url"],
                         "artist_official_url": details["artist_official_url"],
@@ -177,7 +167,7 @@ class LyricRecommender:
         if not all_candidate_docs:
             return "申し訳ありません、似ている曲を見つけられませんでした。外部APIからも関連する曲が見つかりませんでした。"
 
-        # 5. LLMに渡すコンテキストを構築
+        # 6. LLMに渡すコンテキストを構築
         context_parts = []
         # LLMに渡すコンテキストは、最大5件程度に絞るのが一般的
         for doc in all_candidate_docs[:5]: 
@@ -188,11 +178,11 @@ class LyricRecommender:
             
         context_text = "\n\n---\n\n".join(context_parts)
 
-        # 6. LLMにプロンプトを投げて推薦文を生成
+        # 7. LLMにプロンプトを投げて推薦文を生成
         prompt = self.prompt_template.format(selected_song=selected_song_title, context=context_text)
         response = self.llm.invoke(prompt)
         
-        # 7. 推薦文と参照元を結合して返す
+        # 8. 推薦文と参照元を結合して返す
         answer = response.content
         
         # 参照元を整形して追加

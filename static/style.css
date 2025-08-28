@@ -1,0 +1,43 @@
+/* static/style.css */
+
+.album-art {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    margin-right: 10px;
+    border-radius: 4px;
+}
+
+.search-result-item {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.search-result-item:hover {
+    background-color: #f0f0f0;
+}
+
+.track-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.track-name {
+    font-weight: bold;
+    color: #333;
+}
+
+.artist-name {
+    font-size: 0.9em;
+    color: #666;
+}
+
+.no-results {
+    padding: 10px;
+    color: #999;
+    text-align: center;
+}

@@ -23,7 +23,4 @@ COLLECTION_NAME = "lyric_vectors"
 SCORE_THRESHOLD = 0.3
 
 # --- 外部API関連 ---
-# TheAudioDBのAPIキー (テスト用は'1')
-# 環境変数で設定することを推奨: export THEAUDIODB_API_KEY='YOUR_KEY'
-THEAUDIODB_API_KEY = os.getenv("THEAUDIODB_API_KEY", "1")
-
+# No longer using Musixmatch API KEY

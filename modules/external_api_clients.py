@@ -19,7 +19,7 @@ class APIClient:
         url = f"{self.base_url}{endpoint}"
         all_params = {}
         if self.api_key:
-            all_params['api_key'] = self.api_key # Assuming 'api_key' as param name
+            all_params['apikey'] = self.api_key # Musixmatch uses 'apikey'
         if params:
             all_params.update(params)
 
@@ -76,8 +76,8 @@ class TheAudioDBClient(APIClient):
         # TheAudioDB requires an API key, but they have a '1' for testing/public use
         super().__init__("https://www.theaudiodb.com/api/v1/json/", api_key_env_var="THEAUDIODB_API_KEY")
         if not self.api_key:
-            print("WARNING: THEAUDIODB_API_KEY not set. Using '1' as default for testing.")
-            self.api_key = "1" # Public API key for testing
+            print("WARNING: THEAUDIODB_API_KEY not set. Using '2' as default for testing.")
+            self.api_key = "2" # Public API key for testing, changed from '1' to '2'
 
     def search_track_image(self, artist_name, track_name):
         # Search for track details which might include album art
@@ -122,10 +122,116 @@ class iTunesSearchClient(APIClient):
         # For simplicity, we'll assume it's in the search results.
         pass # Not implementing a separate call for this, as it's in search results.
 
+import urllib.parse # Import for URL encoding
+
+class UnifiedMusicService:
+    def __init__(self):
+        self.musicbrainz_client = MusicBrainzClient()
+        self.acousticbrainz_client = AcousticBrainzClient()
+        self.theaudiodb_client = TheAudioDBClient()
+        self.itunes_client = iTunesSearchClient()
+        # MusixmatchClient removed
+
+    def _get_lyrics_from_lyrics_ovh(self, artist: str, title: str) -> str | None:
+        """
+        Lyrics.ovh API を使用して歌詞を取得する
+        """
+        artist_encoded = urllib.parse.quote(artist)
+        title_encoded = urllib.parse.quote(title)
+        url = f"https://api.lyrics.ovh/v1/{artist_encoded}/{title_encoded}"
+
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status() # HTTPエラーがあれば例外を発生
+            data = response.json()
+            if 'lyrics' in data:
+                return data['lyrics']
+            else:
+                return None # Lyrics not found
+        except requests.exceptions.RequestException as e:
+            print(f"Lyrics.ovh API request failed: {e}")
+            return None
+
+    def search_track_by_name(self, query, limit=5):
+        results = []
+        # 1. Search MusicBrainz for recordings
+        mb_recordings = self.musicbrainz_client.search_recording(query, limit=limit)
+
+        for recording in mb_recordings:
+            track_name = recording.get('title')
+            artist_name = recording.get('artist-credit')[0].get('name') if recording.get('artist-credit') else 'Unknown Artist'
+            mb_recording_id = recording.get('id')
+            
+            album_art = None
+            # Try to get album art from TheAudioDB
+            if recording.get('releases'):
+                album_name = recording['releases'][0].get('title')
+                album_art = self.theaudiodb_client.search_album_image(artist_name, album_name)
+            
+            # Fallback to iTunes for album art if not found via TheAudioDB
+            if not album_art:
+                itunes_results = self.itunes_client.search_song(f"{track_name} {artist_name}", limit=1)
+                if itunes_results:
+                    album_art = itunes_results[0].get('artworkUrl100') # 100x100 artwork
+
+            results.append({
+                "id": mb_recording_id,
+                "name": track_name,
+                "artist": artist_name,
+                "album_art": album_art
+            })
+        return results
+
+    def get_track_info(self, mb_recording_id=None, track_name=None, artist_name=None, album_art_url=None):
+        track_info = {
+            "mb_recording_id": mb_recording_id,
+            "track_name": track_name,
+            "artist_name": artist_name,
+            "lyrics": None,
+            "audio_features": {},
+            "preview_url": None,
+            "artist_official_url": None, # Renamed from artist_homepage
+            "album_art_url": album_art_url # Added album_art_url
+        }
+
+        # Get AcousticBrainz features
+        if mb_recording_id:
+            audio_features = self.acousticbrainz_client.get_features(mb_recording_id)
+            if audio_features:
+                track_info["audio_features"] = audio_features.get('lowlevel', {}) # Or other relevant sections
+
+        # Get lyrics from Lyrics.ovh
+        if track_name and artist_name:
+            lyrics = self._get_lyrics_from_lyrics_ovh(artist_name, track_name)
+            if lyrics:
+                track_info["lyrics"] = lyrics
+
+        # Get preview URL from iTunes
+        if track_name and artist_name:
+            itunes_results = self.itunes_client.search_song(f"{track_name} {artist_name}", limit=1)
+            if itunes_results:
+                track_info["preview_url"] = itunes_results[0].get('previewUrl')
+                # If album_art_url was not provided, try to get it from iTunes search results
+                if not track_info["album_art_url"]:
+                    track_info["album_art_url"] = itunes_results[0].get('artworkUrl100')
+
+        # Get artist homepage from MusicBrainz
+        if mb_recording_id: # Need to get artist ID from recording first
+            mb_recordings = self.musicbrainz_client.search_recording(f"rid:{mb_recording_id}", limit=1)
+            if mb_recordings:
+                artist_id = mb_recordings[0].get('artist-credit')[0].get('artist', {}).get('id')
+                if artist_id:
+                    artist_info = self.musicbrainz_client.get_artist_info(artist_id)
+                    if artist_info and 'url-rels' in artist_info:
+                        official_url = next((rel['target'] for rel in artist_info['url'] if rel['type'] == 'official homepage'), None) # Changed from url-rels to url
+                        track_info["artist_official_url"] = official_url
+        
+        return track_info
+
 # Example Usage (for testing purposes, not part of the main flow)
 if __name__ == "__main__":
     # Ensure API keys are set in your environment variables for TheAudioDB
-    # export THEAUDIODB_API_KEY='YOUR_API_KEY' (or use '1' for testing)
+    # export THEAUDIODB_API_KEY='YOUR_API_KEY' (or use '2' for testing)
 
     print("--- Testing MusicBrainzClient ---")
     mb_client = MusicBrainzClient()
@@ -170,3 +276,25 @@ if __name__ == "__main__":
         print(f"Preview URL: {first_result.get('previewUrl')}")
     else:
         print("No iTunes results found.")
+
+    print("\n--- Testing UnifiedMusicService ---")
+    unified_service = UnifiedMusicService()
+    search_results = unified_service.search_track_by_name("Smells Like Teen Spirit Nirvana", limit=1)
+    if search_results:
+        print(f"Unified Search Result: {search_results[0].get('name')} by {search_results[0].get('artist')}")
+        print(f"Album Art: {search_results[0].get('album_art')}")
+        
+        track_details = unified_service.get_track_info(
+            mb_recording_id=search_results[0]['id'],
+            track_name=search_results[0]['name'],
+            artist_name=search_results[0]['artist'],
+            album_art_url=search_results[0].get('album_art') # Pass album_art_url from search results
+        )
+        print(f"Track Details: {track_details.get('track_name')}")
+        print(f"Preview URL: {track_details.get('preview_url')}")
+        print(f"Artist Official URL: {track_details.get('artist_official_url')}") # Renamed
+        print(f"Album Art URL: {track_details.get('album_art_url')}") # Added
+        print(f"Lyrics (first 100 chars): {track_details.get('lyrics', '')[:100]}...")
+        print(f"Audio Features keys: {track_details.get('audio_features', {}).keys()}")
+    else:
+        print("No unified search results found.")
