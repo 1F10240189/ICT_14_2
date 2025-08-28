@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Lyric Recommender 🎵</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .container { max-width: 600px; margin: auto; }
+        h1 { color: #333; }
+        .result { margin-top: 2em; padding: 1em; background: #f8f8f8; border-radius: 8px; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Lyric Recommender 🎵</h1>
+        <form method="post" action="/">
+            <label for="song_title">好きな曲名を入力してください:</label><br>
+            <input type="text" id="song_title" name="song_title" list="songlist" value="{{ request.form.song_title or '' }}" style="width: 80%;" autocomplete="off" required>
+            <datalist id="songlist">
+                {% for title in song_titles %}
+                <option value="{{ title }}">
+                {% endfor %}
+            </datalist>
+            <button type="submit">推薦してもらう</button>
+        </form>
+        {% if result %}
+            <div class="result">{{ result|safe }}</div>
+        {% endif %}
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
+    </div>
+</body>
+</html>
