@@ -1,4 +1,3 @@
- # RAGを使って推薦文を生成するコアロジック
 # modules/recommender.py
 import os
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
