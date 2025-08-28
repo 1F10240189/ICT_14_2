@@ -1,7 +1,9 @@
-# app.py
+from dotenv import load_dotenv
+load_dotenv()
+
 import gradio as gr
 import json
-# from modules.recommender import LyricRecommender # バックエンド完成後にコメントを外します
+from modules.recommender import LyricRecommender
 
 # --- データの読み込み ---
 # アプリケーション起動時に一度だけsongs.jsonを読み込みます。
@@ -30,8 +32,8 @@ def load_song_data(path="data/songs.json"):
 songs_db, song_titles_for_examples = load_song_data()
 
 # 他の人が作成する推薦エンジン。準備ができたら下のコメントアウトを外す
-# recommender = LyricRecommender()
-# print("✅ Recommender engine loaded.")
+recommender = LyricRecommender()
+print("✅ Recommender engine loaded.")
 
 
 # --- Gradioの応答関数 ---
@@ -52,15 +54,10 @@ def respond(message, history):
 
     # --- (仮の)推薦処理 ---
     # バックエンド担当者のrecommender.pyが完成したら、下のコメントアウトを外して差し替えます。
-    # recommendation_text = recommender.recommend(
-    #     selected_song_title=selected_title,
-    #     selected_song_lyrics=selected_song["lyrics"]
-    # )
-    
-    # UI開発用の仮の返信メッセージ
-    recommendation_text = f"「{selected_title}」ですね！\n\n"
-    recommendation_text += "現在、AIがあなたへのおすすめを選んでいます...\n"
-    recommendation_text += "（これはUI開発用のメッセージです。バックエンド接続後に、ここに推薦文が表示されます。）"
+    recommendation_text = recommender.recommend(
+        selected_song_title=selected_title,
+        selected_song_lyrics=selected_song["lyrics"]
+    )
     
     return recommendation_text
 
