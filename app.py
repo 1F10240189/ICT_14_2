@@ -2,7 +2,7 @@
 from flask import Flask
 import gradio as gr
 from modules.recommender import LyricRecommender # 他の人が作る予定の推薦モジュール
-from data.songs_db_mock import songs_db # UIテスト用の仮データベース
+from songs_db_mock import songs_db # UIテスト用の仮データベース
 
 # --- アプリケーションの初期化 ---
 # 推薦エンジンのインスタンスを作成
