@@ -3,7 +3,7 @@
 OPENAI_API_BASE = "https://api.openai.com/v1"  # 必要に応じてURLを変更
 
 EMBED_MODEL = "text-embedding-3-small"
-LLM_MODEL = "gpt-4-mini"
+LLM_MODEL = "gpt-o4-mini"
 
 # APIサーバーのURL (通常は変更不要)
 OPENAI_API_BASE = "https://api.openai.com/v1"
