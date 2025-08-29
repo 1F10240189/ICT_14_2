@@ -65,10 +65,8 @@ class LyricRecommender:
         # 1. 選択された曲の詳細情報をUnifiedMusicServiceから取得
         # これには歌詞、音響特徴量、プレビューURLなどが含まれる
         selected_song_details = self.unified_music_service.get_track_info(
-            mb_recording_id=selected_mb_recording_id,
             track_name=selected_song_title,
-            artist_name=selected_artist_name,
-            album_art_url=selected_album_art_url # Pass album_art_url
+            artist_name=selected_artist_name
         )
         
         # 歌詞が取得できなかった場合は、app.pyから渡された歌詞を使用
@@ -86,8 +84,7 @@ class LyricRecommender:
         
         # 4. 外部APIから関連性の高い楽曲を検索・取得
         # 選択された曲のタイトルとアーティストを元に、MusicBrainzで広範な検索を行う
-        # Note: mb_client is not directly exposed by UnifiedMusicService, need to access it
-        mb_search_results = self.unified_music_service.musicbrainz_client.search_recording(f"{selected_song_title} {selected_artist_name}", limit=20) 
+        mb_search_results = self.unified_music_service.search_musicbrainz_recording(f"{selected_song_title} {selected_artist_name}", limit=20) 
         
         external_candidate_songs = []
         for rec in mb_search_results:
@@ -110,7 +107,6 @@ class LyricRecommender:
             # 外部APIから詳細情報を取得
             # ここではMusicBrainz IDが不明なため、タイトルとアーティストで検索
             details = self.unified_music_service.get_track_info(
-                mb_recording_id=None, # MBIDは不明
                 track_name=title,
                 artist_name=artist
             )
@@ -141,7 +137,6 @@ class LyricRecommender:
             mbid = song_info["mbid"]
             if title not in source_titles: # 重複を避ける
                 details = self.unified_music_service.get_track_info(
-                    mb_recording_id=mbid,
                     track_name=title,
                     artist_name=artist
                 )
