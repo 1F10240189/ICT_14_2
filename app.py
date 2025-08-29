@@ -139,4 +139,4 @@ def create_ui():
 # --- アプリ起動 ---
 if __name__ == "__main__":
     demo = create_ui()
-    demo.launch()
+    demo.launch(share=True)
