@@ -118,13 +118,13 @@ class LyricRecommender:
             instrumentation = self._get_acoustic_feature(details, "sfx.instrumentation") # Placeholder
 
             all_candidate_docs.append(Document(
-                page_content=f"曲名: {details["track_name"]}\nアーティスト: {details["artist_name"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {tempo}\nジャンル: {genre}\n楽器構成: {instrumentation}",
+                page_content=f"曲名: {details["name"]}\nアーティスト: {details["artist"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {tempo}\nジャンル: {genre}\n楽器構成: {instrumentation}",
                 metadata={
-                    "title": details["track_name"],
-                    "artist": details["artist_name"],
+                    "title": details["name"],
+                    "artist": details["artist"],
                     "album_art_url": details["album_art_url"],
                     "preview_url": details["preview_url"],
-                    "artist_official_url": details["artist_official_url"],
+                    "artist_official_url": None, # Added default None
                     "source_type": "local_db_and_external_api"
                 }
             ))
@@ -147,13 +147,13 @@ class LyricRecommender:
                 instrumentation = self._get_acoustic_feature(details, "sfx.instrumentation") # Placeholder
 
                 all_candidate_docs.append(Document(
-                    page_content=f"曲名: {details["track_name"]}\nアーティスト: {details["artist_name"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {tempo}\nジャンル: {genre}\n楽器構成: {instrumentation}",
+                    page_content=f"曲名: {details["name"]}\nアーティスト: {details["artist"]}\n歌詞:\n{details["lyrics"]}\nテンポ: {tempo}\nジャンル: {genre}\n楽器構成: {instrumentation}",
                     metadata={
-                        "title": details["track_name"],
-                        "artist": details["artist_name"],
+                        "title": details["name"],
+                        "artist": details["artist"],
                         "album_art_url": details["album_art_url"],
                         "preview_url": details["preview_url"],
-                        "artist_official_url": details["artist_official_url"],
+                        "artist_official_url": None, # Added default None
                         "source_type": "external_api"
                     }
                 ))

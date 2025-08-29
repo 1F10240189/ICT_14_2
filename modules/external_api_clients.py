@@ -27,7 +27,7 @@ class UnifiedMusicService:
         musicbrainzngs.set_useragent(
             "ICT_14_2_Music_Recommender",
             "0.1",
-            "your_email@example.com" # Replace with a real email
+            "ict142@example.com" # Placeholder email for ICT_14_2 project
         )
         self.musicbrainz_client = musicbrainzngs # Assign the module itself or a wrapper if needed
 

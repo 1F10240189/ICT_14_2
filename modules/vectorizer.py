@@ -47,7 +47,7 @@ class Vectorizer:
             # metadata:     検索時に参照したい情報
             doc = Document(
                 page_content=song["lyrics"],
-                metadata={"title": song["title"], "artist": song["artist"]}
+                metadata={"title": song["track"], "artist": song["artist"]}
             )
             documents.append(doc)
         print(f"✅ {len(documents)} 件のDocumentを作成しました。")
