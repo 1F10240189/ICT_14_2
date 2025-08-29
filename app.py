@@ -72,9 +72,15 @@ def on_select(evt: gr.SelectData, value_list):
     track = value_list[idx]
     return track["id"], track["name"], track["artist"], track["album_art"], f"{track['name']} - {track['artist']}"
 
-# --- UI ---
+
+# --- UI (元の構造を維持し、themeとcssを追加) ---
 def create_ui():
-    with gr.Blocks(title="AI Lyric Recommender 🎵") as demo:
+    # Gradioに組み込みのテーマを適用し、カスタムCSSを読み込む
+    with gr.Blocks(
+        title="AI Lyric Recommender 🎵", 
+        theme=gr.themes.Soft(primary_hue="sky", secondary_hue="blue"),
+        css="style.css"
+    ) as demo:
         gr.Markdown("# AI Lyric Recommender 🎵")
         gr.Markdown("曲名またはアーティスト名で検索して、アルバム画像をクリックしてください。")
 
@@ -84,40 +90,48 @@ def create_ui():
                     label="曲名またはアーティスト名で検索",
                     placeholder="例: Smells Like Teen Spirit Nirvana"
                 )
-                search_results = gr.Gallery(label="検索結果", elem_id="search_gallery")
+                search_results = gr.Gallery(
+                    label="検索結果", 
+                    elem_id="search_gallery", 
+                    columns=5, 
+                    height="auto"
+                )
 
+                # 非表示のコンポーネント (元のまま)
                 hidden_values = gr.State([])
-
                 selected_track_id = gr.Textbox(visible=False)
                 selected_track_name = gr.Textbox(visible=False)
                 selected_artist_name = gr.Textbox(visible=False)
                 selected_album_art_url = gr.Textbox(visible=False)
+                
                 selected_track_display_output = gr.Textbox(label="選択中の曲", interactive=False)
-
-                submit_button = gr.Button("この曲で推薦してもらう")
+                submit_button = gr.Button("この曲で推薦してもらう", variant="primary")
 
             with gr.Column(scale=3):
-                recommendation_output = gr.Markdown(label="推薦結果")
+                recommendation_output = gr.Markdown(
+                    label="推薦結果", 
+                    elem_classes="recommendation-area" # CSSでスタイルを適用するためのクラス名
+                )
 
-        # 検索イベント
+        # --- イベントリスナー (ローディング表示を追加) ---
         track_search_input.change(
             fn=search_tracks,
             inputs=track_search_input,
-            outputs=[search_results, hidden_values]
+            outputs=[search_results, hidden_values],
+            show_progress='full' # 処理中にローディング表示
         )
 
-        # ギャラリー選択イベント
         search_results.select(
             fn=on_select,
-            inputs=hidden_values,
+            inputs=[hidden_values],
             outputs=[selected_track_id, selected_track_name, selected_artist_name, selected_album_art_url, selected_track_display_output]
         )
 
-        # 推薦イベント
         submit_button.click(
             fn=recommend_song,
             inputs=[selected_track_id, selected_track_name, selected_artist_name, selected_album_art_url],
-            outputs=recommendation_output
+            outputs=recommendation_output,
+            show_progress='full' # 処理中にローディング表示
         )
 
     return demo
@@ -125,4 +139,4 @@ def create_ui():
 # --- アプリ起動 ---
 if __name__ == "__main__":
     demo = create_ui()
-    demo.launch(share=True)
+    demo.launch()

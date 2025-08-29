@@ -1,0 +1,83 @@
+/* --- 全体 --- */
+#submit_button {
+    height: 60px; /* ボタンを大きくする */
+}
+
+/* --- ギャラリー --- */
+#search_gallery .gallery-item {
+    border: 2px solid transparent;
+    transition: transform 0.2s ease-in-out, border-color 0.2s ease-in-out;
+    border-radius: 8px; /* 角を丸める */
+    overflow: hidden; /* 画像のはみ出しを防ぐ */
+}
+
+#search_gallery .gallery-item:hover {
+    transform: scale(1.05); /* ホバー時に少し拡大 */
+    border-color: #3b82f6; /* 青い枠線 */
+}
+
+/* --- 選択中のアルバムアート --- */
+#selected_album_art {
+    border-radius: 8px;
+}
+
+/* --- 推薦結果のカードデザイン --- */
+.recommendation-card {
+    display: flex;
+    align-items: center;
+    border: 1px solid #e5e7eb; /* 枠線 */
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background-color: #ffffff;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    transition: box-shadow 0.2s;
+}
+
+.recommendation-card:hover {
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+.recommendation-card img {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    margin-right: 16px;
+    object-fit: cover;
+}
+
+.recommendation-card .song-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.recommendation-card .song-info h4 {
+    margin: 0 0 4px 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.recommendation-card .song-info p {
+    margin: 0;
+    color: #4b5563;
+}
+
+.recommendation-card .song-info p.reason {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: #1f2937;
+}
+
+/* --- プレースホルダー --- */
+.placeholder {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+    border: 2px dashed #d1d5db;
+    border-radius: 12px;
+    color: #6b7280;
+    font-size: 1.1rem;
+    text-align: center;
+    background-color: #f9fafb;
+}
